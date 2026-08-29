@@ -26,10 +26,9 @@ def generate_launch_description():
     declared = [
         DeclareLaunchArgument('datasetDir', default_value='/root/pika_ros/data'),
         DeclareLaunchArgument('port', default_value='8080'),
-        # 10, not 20: the cameras measure 18-21 Hz on this rig despite a
-        # 30 fps profile, so a threshold of 20 aborts recordings. See
-        # record.launch.py for the numbers.
-        DeclareLaunchArgument('hz', default_value='10'),
+        # 20 is safe with docker/fastdds_large_data.xml applied; see
+        # record.launch.py for the measurements.
+        DeclareLaunchArgument('hz', default_value='20'),
         DeclareLaunchArgument('timeout', default_value='5'),
         DeclareLaunchArgument('cropTime', default_value='1.0'),
     ]

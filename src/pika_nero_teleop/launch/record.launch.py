@@ -36,13 +36,11 @@ def generate_launch_description():
         DeclareLaunchArgument('datasetDir', default_value='/root/pika_ros/data'),
         DeclareLaunchArgument('episodeIndex', default_value='0'),
         DeclareLaunchArgument('instructions', default_value='[null]'),
-        # Capture aborts as soon as any topic drops below this. Measured on
-        # this rig with all five image streams up: 18.3 / 20.5 / 19.5 / 21.1 Hz
-        # even though the cameras are configured for 30 - the two RealSense
-        # units share one xHCI controller. A threshold of 20 therefore aborts
-        # intermittently, so the default here is 10.
-        # Raise it once the cameras are split across USB controllers.
-        DeclareLaunchArgument('hz', default_value='10'),
+        # Capture aborts as soon as any topic drops below this. With the Fast
+        # DDS large-data profile in place (docker/fastdds_large_data.xml) all
+        # four image streams measure 29.9 Hz with zero loss, so 20 is safe.
+        # Without that profile images arrive at ~9 Hz and this must be lowered.
+        DeclareLaunchArgument('hz', default_value='20'),
         DeclareLaunchArgument('timeout', default_value='5'),
         DeclareLaunchArgument('cropTime', default_value='1.0'),
         # false = press ENTER here to stop. true = start/stop via the
