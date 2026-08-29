@@ -1,0 +1,135 @@
+# Fixed arm poses for the Pika -> NERO teleop session, in joint space.
+#
+# Joint order is joint1..joint7 (base yaw, shoulder pitch, upper-arm roll,
+# elbow, forearm roll, wrist pitch, wrist roll), radians, matching
+# agx_arm_urdf/nero/urdf/nero_description.urdf:
+#
+#   joint1  -2.706 .. 2.706      joint5  -2.750 .. 2.750
+#   joint2  -1.740 .. 1.740      joint6  -0.730 .. 0.950
+#   joint3  -2.750 .. 2.750      joint7  -1.571 .. 1.571
+#   joint4  -1.010 .. 2.140
+#
+# All zeros is the arm straight up: flange at (0, -0.024, 0.718) in base_link.
+# Positive joint2 tips the arm towards -x, positive joint4 bends the elbow the
+# same way, so both poses below fold the arm out over -x.
+#
+# joint5 = -1.5708 in both. That is not decoration: joint5 rolls the forearm,
+# and at 0 the flange's tool axis (link7 +z, the direction the Pika Gripper
+# sticks out) points sideways along -y. Rolled to -pi/2 it lies in the x-z
+# plane, so joint6 becomes a wrist pitch that aims the gripper at the table.
+# Change joint5 and joint6 stops doing what the comments below say.
+#
+# joint7 is a wrist PITCH on this arm, not a tool roll. Worth stating plainly,
+# because the name and the usual 6/7-axis convention both suggest otherwise.
+# Verified on the hardware 2026-08-29: at joint7 = 0 the gripper points
+# horizontally away from the base; at +1.5708 it hangs straight down. The model
+# agrees to within a degree -- the tool leaves the flange along link7's +x,
+# perpendicular to joint7's rotation axis (link7 z), so turning joint7 swings
+# where the gripper points rather than rolling it about its own axis.
+#
+# Consequence: joint7 is how you aim the gripper at the table, and it is out of
+# travel doing so -- +1.5708 IS the stop. Nothing else in the wrist can take
+# over, joint6's range being only [-0.73, +0.95]. Expect the gripper's pitch
+# authority during teleop to be one-sided from here.
+#
+# Ignore two things in the URDF that argue for +z: link7.stl is a 27 mm disc
+# 9.6 mm thick along z, and joint7's origin advances 23.5 mm along that same z.
+# Both say "the tool leaves along z". Both are wrong about this arm.
+#
+# ---------------------------------------------------------------------------
+# THESE ARE STARTING VALUES, NOT MEASURED ONES. They come from forward
+# kinematics on the URDF alone -- nothing here knows where your table, the
+# Pika Gripper's body, or your fixturing actually are. And agx_arm_urdf models
+# the BARE ARM: the gripper adds roughly 0.2 m beyond the flange, which is
+# what the numbers below call the "tool tip" and is entirely an estimate.
+#
+# Look before you trust:
+#
+#   python3 scripts/render_poses.py -o /root/pika_ros/arm_poses.png
+#
+# Set your own: put the arm where you want it (web UI -> WEB -> Drag Teaching
+# -> Add, hand on the arm, then Pause), then
+#
+#   ros2 run pika_nero_teleop capture_pose.py
+#
+# and paste the printed list here.
+# ---------------------------------------------------------------------------
+/**:
+  ros__parameters:
+    joint_names: ["joint1", "joint2", "joint3", "joint4", "joint5", "joint6", "joint7"]
+
+    # READY -- "pose A", where every episode starts and ends.
+    #
+    # Given in degrees on 2026-08-29 and converted here:
+    #
+    #   joint1    0 deg      joint5   0 deg
+    #   joint2  -20 deg      joint6   0 deg
+    #   joint3   +5 deg      joint7 +50 deg
+    #   joint4  120 deg
+    #
+    # Flange at (-0.16, -0.04, 0.38), elbow above it at z 0.43, gripper pitched
+    # 60 deg down -- tip around (-0.26, -0.05, 0.21) allowing 0.2 m of gripper.
+    # A tucked-in, steeply-down pose: the tip sits about 26 cm forward of the
+    # base rather than out at arm's length.
+    #
+    # Every joint is inside the URDF limits, which READY needs and REST does
+    # not: arm_ik_pose_node solves against that model and clamps, so a READY
+    # outside them is a pose teleop cannot hold and jumps out of the moment you
+    # double-click.
+    #
+    # WATCH joint4: at 120 deg it is 2.6 deg off its +2.14 rad stop. Teleop maps
+    # Sense motion as a delta from here, so the elbow has almost nothing left to
+    # fold; motions wanting more of it hit the limit and the IK has to reach the
+    # same pose another way, which shows up as the arm resisting in one
+    # direction. 110 deg buys 12.6 deg of margin if that happens. Every other
+    # joint here has 40 deg or more.
+    ready_pose: [0.0, -0.3491, 0.0873, 2.0944, 0.0, 0.0, 0.8727]
+
+    # REST -- where the arm is left when it is going to lose power.
+    #
+    # MEASURED. Drag-taught on the real arm 2026-08-29 and read back from
+    # /feedback/joint_states; the web UI agreed to 0.001 deg on every joint,
+    # so the UI and ROS share a zero and a sign convention.
+    #
+    # CLAMPED to the URDF limits, on request. Two taught joints sat outside
+    # them -- the real arm's stops are wider than agx_arm_urdf declares:
+    #
+    #   joint4  +2.1917 -> +2.1380   (-3.08 deg, URDF max +2.1400)
+    #   joint7  +1.5940 -> +1.5688   (-1.44 deg, URDF max +1.5707963)
+    #
+    # Clamped to 0.002 rad INSIDE each limit rather than onto it. Sitting
+    # exactly on a stop is how you get the driver raising joint_angle_limit
+    # for no reason; 0.002 rad is 0.11 deg and changes nothing you can see.
+    #
+    # Cost of clamping: the flange moves ~14 mm and the gripper tips ~4.5 deg
+    # off where it was taught. Worth it -- arm_ik_pose_node solves against
+    # this same URDF and clamps anyway, so a pose outside the limits is one
+    # the IK can never hold, and RViz would draw it wrong too.
+    #
+    # The arm ends folded back over its own base with the gripper hanging
+    # straight down, tip roughly 0.20 m above the mounting plate. A NERO
+    # "will be deactivated and drop directly after power-off" (manual), so
+    # what matters here is that it is stable and has little height to lose.
+    rest_pose: [-0.0423, -0.7252, 0.0555, 2.1380, -0.0224, -0.1002, 1.5688]
+
+    move_to_ready_on_start: true
+    # Return to READY when a teleop session ends, and refuse to arm teleop
+    # from anywhere else. Turn off to get the plain upstream behaviour, where
+    # teleop resumes from wherever the arm was left.
+    return_to_ready_after_teleop: true
+    # Best effort: on Ctrl-C the arm driver is signalled at the same moment we
+    # are and usually dies first. Park explicitly instead --
+    # docker/stop_teleop.sh, or ros2 service call /arm_park.
+    park_on_shutdown: true
+
+    # A move is done when every joint is within tolerance and has stayed there
+    # this long. The arm overshoots slightly; a single in-tolerance sample
+    # fires early and the next command lands mid-settle.
+    arrival_tolerance: 0.05
+    arrival_settle_time: 0.4
+    # Grace period between the arm driver coming up and the automatic move to
+    # READY. This is the only warning you get before the arm moves on its own.
+    startup_delay: 3.0
+    move_timeout: 25.0
+    shutdown_move_timeout: 8.0
+    feedback_timeout: 60.0

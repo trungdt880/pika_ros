@@ -7,7 +7,9 @@ takes) plus a small web server that drives it.
     # open http://localhost:8080
 
 The Pika Sense button also calls that same capture service, so a double-click
-starts/stops a recording as well -- note it toggles teleop at the same time.
+starts/stops a recording as well -- and it toggles teleop at the same time, so
+an episode runs exactly from the first click to the second, starting and ending
+at the arm's READY pose (see arm_pose_manager).
 """
 import os
 

@@ -43,6 +43,9 @@ _ARM_ARGS = [
     ('handle_pose_roll', '-1.57'),
     ('handle_pose_pitch', '0.0'),
     ('handle_pose_yaw', '0.0'),
+    # READY / REST pose sequencing around each teleop session. Set
+    # pose_manager:=false for the plain upstream behaviour.
+    ('pose_manager', 'true'),
 ]
 
 

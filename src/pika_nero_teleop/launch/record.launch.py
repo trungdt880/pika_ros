@@ -45,7 +45,10 @@ def generate_launch_description():
         DeclareLaunchArgument('cropTime', default_value='1.0'),
         # false = press ENTER here to stop. true = start/stop via the
         # /data_tools_dataCapture/capture_service, which the Pika Sense button
-        # calls -- note that same button also toggles teleop.
+        # calls -- that same button also arms/disarms teleop, so with true a
+        # double-click brackets the episode exactly: click to start recording
+        # and teleoperating from the READY pose, click again to stop both and
+        # send the arm back to READY.
         DeclareLaunchArgument('useService', default_value='false'),
     ]
 

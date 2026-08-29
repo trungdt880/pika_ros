@@ -19,6 +19,11 @@
   <exec_depend>sensor_msgs</exec_depend>
   <exec_depend>geometry_msgs</exec_depend>
   <exec_depend>std_srvs</exec_depend>
+  <exec_depend>data_msgs</exec_depend>
+  <!-- capture_pose.py / goto_pose.py read the pose YAML; render_poses.py
+       rasterises the URDF's STL meshes. -->
+  <exec_depend>python3-yaml</exec_depend>
+  <exec_depend>python3-pil</exec_depend>
   <exec_depend>agx_arm_ctrl</exec_depend>
   <exec_depend>agx_arm_description</exec_depend>
   <exec_depend>pika_remote_agx_arm</exec_depend>

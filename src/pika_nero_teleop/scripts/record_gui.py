@@ -107,7 +107,20 @@ class RecorderNode(Node):
         self.recording = False
         self.started_at = None
         self.last_message = ""
-        self.episode_index = 0
+        # Start from the next FREE index, not 0. The capture node opens each
+        # episode with `rm -rf episodeDir`, so handing it an index that already
+        # has data destroys that take. The box in the page used to be hardcoded
+        # to 0, which meant every page reload or GUI restart aimed the next
+        # Start straight at episode0.
+        self.episode_index = self.next_free_episode_index()
+
+    def next_free_episode_index(self):
+        i = 0
+        while True:
+            d = os.path.join(self.dataset_dir, f"episode{i}")
+            if not (os.path.isdir(d) and os.listdir(d)):
+                return i
+            i += 1
 
         self.cli = self.create_client(
             CaptureService, "/data_tools_dataCapture/capture_service")
@@ -267,7 +280,7 @@ small{opacity:.65}
 <h1>Pika Recorder &mdash; NERO + Pika Gripper</h1>
 <div id="state" class="state idle">idle</div>
 <div class="row">
-  <div><label>episode index (-1 = auto)</label><input id="ep" type="number" value="0" style="width:150px"></div>
+  <div><label>episode index (-1 = auto)</label><input id="ep" type="number" style="width:150px"></div>
   <div style="flex:1"><label>instruction</label><input id="ins" style="width:100%" placeholder="pick up the red block"></div>
   <button id="go">Start</button><button id="stop">Stop</button>
 </div>
@@ -287,6 +300,7 @@ async function refresh(){
   const s=await (await fetch('/api/status')).json();
   const st=document.getElementById('state');
   st.className='state '+(s.recording?'rec':'idle');
+  if(ep.value===''||(!s.recording&&+ep.value<s.episode_index))ep.value=s.episode_index;
   st.textContent=s.recording?('RECORDING episode '+s.episode_index+'  ·  '+s.elapsed+'s'):'idle';
   go.disabled=s.recording;
   document.querySelector('#msg small').textContent=s.message||'';

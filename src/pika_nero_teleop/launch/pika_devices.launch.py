@@ -12,8 +12,11 @@ pub_delta_pose.py has its gripper publishing commented out -- it would be a
 second, competing command source.
 
 The Sense's button also lives here: on a double-click the serial node calls the
-`/teleop_trigger` Trigger service, which is what arms and disarms arm teleop in
-pub_delta_pose.py.
+`/teleop_trigger` Trigger service AND data_tools' capture service, so one click
+starts an episode and arms teleop and the next one ends both. `/teleop_trigger`
+is served by arm_pose_manager (teleop_nero_pika.launch.py), which puts the arm
+in its READY pose either side of the session before forwarding to
+pub_delta_pose.
 """
 import os
 
@@ -82,7 +85,8 @@ def generate_launch_description():
             ('/localization_status', '/pika_localization_status'),
             ('/arm_control_status', '/arm_control_status'),
             # Left unremapped on purpose: the double-click must reach the
-            # /teleop_trigger service served by pub_delta_pose.py.
+            # /teleop_trigger service served by arm_pose_manager (which then
+            # forwards to pub_delta_pose on /teleop_trigger_arm).
         ],
         respawn=True,
         output='screen',

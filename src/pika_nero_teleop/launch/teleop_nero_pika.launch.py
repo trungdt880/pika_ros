@@ -15,14 +15,22 @@ Adapted from PikaAnyArm's teleop_single_nero.launch.py. Two deliberate changes:
 
 Chain:  /pika_pose --(pub_delta_pose)--> /delta_pose --(arm_ik_pose_node)-->
         /control/joint_states --(agx_arm_ctrl)--> CAN --> NERO
+
+arm_pose_manager sits in front of that chain rather than inside it. It owns the
+Sense's /teleop_trigger service and forwards to pub_delta_pose under
+/teleop_trigger_arm, so it can put the arm in a fixed READY pose before every
+episode and bring it back afterwards, and park it at REST before power-off. It
+commands /control/move_j, a different topic from the teleop chain's
+/control/joint_states, and only ever while teleop is disarmed.
 """
 import os
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import LaunchConfiguration
+from launch.substitutions import LaunchConfiguration, PythonExpression
 from launch_ros.actions import Node
 
 
@@ -63,6 +71,14 @@ def generate_launch_description():
         DeclareLaunchArgument('handle_pose_pitch', default_value='0.0'),
         DeclareLaunchArgument('handle_pose_yaw', default_value='0.0'),
         DeclareLaunchArgument('rviz', default_value='true'),
+        # READY / REST poses and the timings around them. Defaults are FK on
+        # the URDF only -- capture your own with capture_pose.py. See the file.
+        DeclareLaunchArgument(
+            'arm_poses_file',
+            default_value=os.path.join(pkg_dir, 'config', 'arm_poses.nero_pika.yaml')),
+        # false gives the plain upstream behaviour: no startup move, teleop
+        # arms wherever the arm happens to be, nothing parks it on the way out.
+        DeclareLaunchArgument('pose_manager', default_value='true'),
     ]
 
     # Arm driver + robot_state_publisher + RViz. control:=false so RViz only
@@ -92,8 +108,13 @@ def generate_launch_description():
         parameters=[LaunchConfiguration('ik_params_file')],
     )
 
-    # Serves /teleop_trigger (double-click on the Sense) and turns absolute
-    # Sense poses into arm-frame targets relative to where teleop was armed.
+    # Turns absolute Sense poses into arm-frame targets relative to where
+    # teleop was armed. Its trigger service is moved off /teleop_trigger:
+    # with pose_manager:=true that name belongs to arm_pose_manager, which
+    # forwards here after it has the arm in the right pose. With
+    # pose_manager:=false nothing serves /teleop_trigger and the Sense's
+    # double-click would go nowhere, so the name is chosen by the same
+    # condition.
     pub_delta_pose_node = Node(
         package='pika_remote_agx_arm',
         executable='pub_delta_pose.py',
@@ -103,11 +124,28 @@ def generate_launch_description():
             'handle_pose_roll': LaunchConfiguration('handle_pose_roll'),
             'handle_pose_pitch': LaunchConfiguration('handle_pose_pitch'),
             'handle_pose_yaw': LaunchConfiguration('handle_pose_yaw'),
+            'teleop_trigger_service': PythonExpression([
+                "'/teleop_trigger_arm' if '", LaunchConfiguration('pose_manager'),
+                "' in ('true', 'True', '1') else '/teleop_trigger'",
+            ]),
         }],
+    )
+
+    # Serves /teleop_trigger (the Sense's double-click) and sequences the
+    # READY / REST poses around each teleop session.
+    arm_pose_manager_node = Node(
+        package='pika_nero_teleop',
+        executable='arm_pose_manager.py',
+        name='arm_pose_manager',
+        output='screen',
+        emulate_tty=True,
+        parameters=[LaunchConfiguration('arm_poses_file')],
+        condition=IfCondition(LaunchConfiguration('pose_manager')),
     )
 
     return LaunchDescription(declared + [
         arm_launch,
         arm_ik_pose_node,
         pub_delta_pose_node,
+        arm_pose_manager_node,
     ])
