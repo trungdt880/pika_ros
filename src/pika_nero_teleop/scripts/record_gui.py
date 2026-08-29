@@ -114,20 +114,21 @@ class RecorderNode(Node):
         # Start straight at episode0.
         self.episode_index = self.next_free_episode_index()
 
-    def next_free_episode_index(self):
-        i = 0
-        while True:
-            d = os.path.join(self.dataset_dir, f"episode{i}")
-            if not (os.path.isdir(d) and os.listdir(d)):
-                return i
-            i += 1
-
         self.cli = self.create_client(
             CaptureService, "/data_tools_dataCapture/capture_service")
         # Topic types are only known once publishers exist, so resolving
         # subscriptions is retried rather than done once at startup.
         self.create_timer(2.0, self._resubscribe)
         self._resubscribe()
+
+    def next_free_episode_index(self):
+        """First episode index whose directory is absent or empty."""
+        i = 0
+        while True:
+            d = os.path.join(self.dataset_dir, f"episode{i}")
+            if not (os.path.isdir(d) and os.listdir(d)):
+                return i
+            i += 1
 
     def _resubscribe(self):
         available = dict(self.get_topic_names_and_types())
@@ -211,6 +212,15 @@ class RecorderNode(Node):
             return False, "capture service not available - is data_tools_dataCapture running?"
         req = CaptureService.Request()
         req.start, req.end = start, end
+        # dataCapture's parser wants the instruction wrapped as \[text\] --
+        # it checks for a leading backslash and strips two characters from each
+        # end. Plain text (or the default "[null]") fails that check, prints
+        # "Error parsing JSON" and writes no instruction at all, which leaves
+        # every frame in the LeRobot dataset with the task string "null".
+        text = (instructions or "").strip()
+        if text and not text.startswith("\\["):
+            instructions = "\\[" + text + "\\]"
+
         req.episode_index = int(episode_index)
         req.dataset_dir = self.dataset_dir
         req.instructions = instructions or "[null]"
