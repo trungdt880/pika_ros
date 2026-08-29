@@ -26,17 +26,25 @@ import time
 from collections import deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+import cv2
+import numpy as np
 import rclpy
 import yaml
 from ament_index_python.packages import get_package_share_directory
+from cv_bridge import CvBridge
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
+from rclpy.qos import qos_profile_sensor_data
 from rosidl_runtime_py.utilities import get_message
+from sensor_msgs.msg import Image
 
 from data_msgs.srv import CaptureService
 
 RATE_WINDOW = 30          # messages kept per topic for rate estimation
 STALE_AFTER = 2.0         # seconds without a message before a topic reads dead
+PREVIEW_WIDTH = 320       # preview downscale; full frames still go to disk
+PREVIEW_FPS = 10          # encode cap, so previews cannot starve the recorder
+JPEG_QUALITY = 70
 
 
 def load_topics(params_file):
@@ -63,14 +71,39 @@ def load_topics(params_file):
     return out
 
 
+def load_cameras(params_file):
+    """Camera streams to preview, from the same YAML.
+
+    Reading the config rather than hardcoding means a second Pika Gripper (or
+    any camera) added for bimanual work shows up in the UI automatically.
+    """
+    with open(params_file) as fh:
+        cfg = yaml.safe_load(fh)
+    cam = (cfg.get("/**", {}).get("ros__parameters", {})
+              .get("dataInfo", {}).get("camera", {})) or {}
+    out = []
+    for kind in ("color", "depth"):
+        spec = cam.get(kind) or {}
+        names = spec.get("names") or []
+        for i, topic in enumerate(spec.get("topics") or []):
+            label = names[i] if i < len(names) else topic
+            out.append({"label": label, "kind": kind, "topic": topic})
+    return out
+
+
 class RecorderNode(Node):
     def __init__(self, params_file, dataset_dir):
         super().__init__("pika_record_gui")
         self.params_file = params_file
         self.dataset_dir = dataset_dir
         self.topics = load_topics(params_file)
+        self.cameras = load_cameras(params_file)
         self.stamps = {t["topic"]: deque(maxlen=RATE_WINDOW) for t in self.topics}
         self.subs = {}
+        self.bridge = CvBridge()
+        self.frames = {}        # topic -> latest encoded JPEG
+        self.frame_lock = threading.Lock()
+        self._last_encode = {}
         self.recording = False
         self.started_at = None
         self.last_message = ""
@@ -93,9 +126,55 @@ class RecorderNode(Node):
                 msg_type = get_message(available[topic][0])
             except Exception:
                 continue
+            # BEST_EFFORT deliberately: a RELIABLE subscriber will not match a
+            # BEST_EFFORT publisher, and every sensor topic here (all the
+            # cameras) publishes with sensor QoS. Best-effort matches both.
             self.subs[topic] = self.create_subscription(
                 msg_type, topic,
-                lambda _m, t=topic: self.stamps[t].append(time.monotonic()), 10)
+                lambda _m, t=topic: self.stamps[t].append(time.monotonic()),
+                qos_profile_sensor_data)
+
+        for cam in self.cameras:
+            topic = cam["topic"]
+            key = ("preview", topic)
+            if key in self.subs or topic not in available:
+                continue
+            self.subs[key] = self.create_subscription(
+                Image, topic,
+                lambda m, t=topic, k=cam["kind"]: self._on_image(m, t, k),
+                qos_profile_sensor_data)
+
+    def _on_image(self, msg, topic, kind):
+        # Encoding is capped well below camera rate: the preview must never
+        # compete with the recorder for CPU.
+        now = time.monotonic()
+        if now - self._last_encode.get(topic, 0.0) < 1.0 / PREVIEW_FPS:
+            return
+        self._last_encode[topic] = now
+        try:
+            if kind == "depth":
+                depth = self.bridge.imgmsg_to_cv2(msg, desired_encoding="passthrough")
+                depth = np.nan_to_num(np.asarray(depth, dtype=np.float32))
+                far = np.percentile(depth[depth > 0], 95) if np.any(depth > 0) else 1.0
+                scaled = np.clip(depth / max(far, 1e-6), 0, 1)
+                img = cv2.applyColorMap((scaled * 255).astype(np.uint8), cv2.COLORMAP_TURBO)
+                img[depth <= 0] = 0            # no return -> black, not red
+            else:
+                img = self.bridge.imgmsg_to_cv2(msg, desired_encoding="bgr8")
+            h, w = img.shape[:2]
+            if w > PREVIEW_WIDTH:
+                img = cv2.resize(img, (PREVIEW_WIDTH, int(h * PREVIEW_WIDTH / w)))
+            ok, buf = cv2.imencode(".jpg", img,
+                                   [int(cv2.IMWRITE_JPEG_QUALITY), JPEG_QUALITY])
+            if ok:
+                with self.frame_lock:
+                    self.frames[topic] = buf.tobytes()
+        except Exception as exc:
+            self.get_logger().warn(f"preview {topic}: {exc}", throttle_duration_sec=10.0)
+
+    def latest_frame(self, topic):
+        with self.frame_lock:
+            return self.frames.get(topic)
 
     def rates(self):
         now = time.monotonic()
@@ -179,6 +258,11 @@ td,th{text-align:left;padding:5px 8px;border-bottom:1px solid #8883;font-size:13
 .state{padding:10px 14px;border-radius:8px;margin-bottom:16px;font-weight:600}
 .idle{background:#8882}.rec{background:#b4231822;color:#b42318}
 small{opacity:.65}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px}
+.cam{border:1px solid #8884;border-radius:8px;overflow:hidden;background:#0002}
+.cam img{width:100%;display:block;aspect-ratio:4/3;object-fit:cover;background:#0004}
+.cam .cap{padding:6px 8px;font-size:12px;display:flex;justify-content:space-between;gap:8px}
+.cam .cap b{font-weight:600}
 </style></head><body>
 <h1>Pika Recorder &mdash; NERO + Pika Gripper</h1>
 <div id="state" class="state idle">idle</div>
@@ -188,6 +272,8 @@ small{opacity:.65}
   <button id="go">Start</button><button id="stop">Stop</button>
 </div>
 <div id="msg"><small></small></div>
+<h3 style="font-size:14px;margin:18px 0 8px">Cameras</h3>
+<div id="cams" class="grid"></div>
 <h3 style="font-size:14px;margin:18px 0 0">Recorded streams</h3>
 <table><thead><tr><th>stream</th><th>topic</th><th>Hz</th><th>status</th></tr></thead>
 <tbody id="tb"></tbody></table>
@@ -211,6 +297,12 @@ async function refresh(){
     <td>${t.hz.toFixed(1)}</td><td class="${good?'ok':'bad'}">${good?'ok':(t.connected?'stalled':'no publisher')}</td></tr>`}).join('');
   if(dead&&!s.recording)document.querySelector('#msg small').textContent=dead+' stream(s) not healthy — recording will abort if any falls below the hz threshold.';
   eps.innerHTML=s.episodes.length?s.episodes.map(e=>`<code>${e}</code>`).join(' &nbsp; '):'<small>none yet</small>';
+  if(!cams.dataset.built){
+    cams.dataset.built='1';
+    cams.innerHTML=s.cameras.map(c=>`<div class="cam">
+      <img alt="${c.label}" src="/api/stream?topic=${encodeURIComponent(c.topic)}">
+      <div class="cap"><b>${c.label}</b><span>${c.kind}</span></div></div>`).join('');
+  }
 }
 refresh();setInterval(refresh,1000);
 </script></body></html>"""
@@ -230,6 +322,8 @@ def make_handler(node):
             self.wfile.write(payload)
 
         def do_GET(self):
+            if self.path.startswith("/api/stream"):
+                return self._stream()
             if self.path.startswith("/api/status"):
                 elapsed = int(time.monotonic() - node.started_at) if node.started_at else 0
                 self._send(200, json.dumps({
@@ -238,10 +332,34 @@ def make_handler(node):
                     "elapsed": elapsed,
                     "message": node.last_message,
                     "topics": node.rates(),
+                    "cameras": node.cameras,
                     "episodes": node.episodes(),
                 }))
             else:
                 self._send(200, PAGE, "text/html; charset=utf-8")
+
+        def _stream(self):
+            """MJPEG: multipart/x-mixed-replace, which every browser renders in
+            a plain <img> with no JS and no extra dependency."""
+            from urllib.parse import parse_qs, urlparse
+            topic = (parse_qs(urlparse(self.path).query).get("topic") or [""])[0]
+            self.send_response(200)
+            self.send_header("Content-Type",
+                             "multipart/x-mixed-replace; boundary=frame")
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            last = None
+            try:
+                while True:
+                    frame = node.latest_frame(topic)
+                    if frame is not None and frame is not last:
+                        last = frame
+                        self.wfile.write(b"--frame\r\nContent-Type: image/jpeg\r\n"
+                                         b"Content-Length: " + str(len(frame)).encode()
+                                         + b"\r\n\r\n" + frame + b"\r\n")
+                    time.sleep(1.0 / PREVIEW_FPS)
+            except (BrokenPipeError, ConnectionResetError):
+                pass   # viewer closed the tab
 
         def do_POST(self):
             length = int(self.headers.get("Content-Length") or 0)

@@ -36,10 +36,13 @@ def generate_launch_description():
         DeclareLaunchArgument('datasetDir', default_value='/root/pika_ros/data'),
         DeclareLaunchArgument('episodeIndex', default_value='0'),
         DeclareLaunchArgument('instructions', default_value='[null]'),
-        # Capture aborts early if a topic runs slower than this. The Pika
-        # cameras are 30 fps, the arm 200 Hz, so 20 is safe; lower it if a
-        # slow topic keeps stopping the recording.
-        DeclareLaunchArgument('hz', default_value='20'),
+        # Capture aborts as soon as any topic drops below this. Measured on
+        # this rig with all five image streams up: 18.3 / 20.5 / 19.5 / 21.1 Hz
+        # even though the cameras are configured for 30 - the two RealSense
+        # units share one xHCI controller. A threshold of 20 therefore aborts
+        # intermittently, so the default here is 10.
+        # Raise it once the cameras are split across USB controllers.
+        DeclareLaunchArgument('hz', default_value='10'),
         DeclareLaunchArgument('timeout', default_value='5'),
         DeclareLaunchArgument('cropTime', default_value='1.0'),
         # false = press ENTER here to stop. true = start/stop via the
