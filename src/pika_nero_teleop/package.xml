@@ -1,0 +1,31 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>pika_nero_teleop</name>
+  <version>0.1.0</version>
+  <description>
+    Teleoperation of an AgileX NERO carrying a Pika Gripper, driven by a
+    handheld Pika Sense. Overlay on top of PikaAnyArm/agx_arm_ros: it exists
+    because the upstream nero launch assumes the AgileX CAN gripper on the arm
+    flange, while the Pika Gripper is a USB device on its own serial link.
+  </description>
+  <maintainer email="termanteus@gmail.com">tdao6</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
+  <exec_depend>geometry_msgs</exec_depend>
+  <exec_depend>std_srvs</exec_depend>
+  <exec_depend>agx_arm_ctrl</exec_depend>
+  <exec_depend>agx_arm_description</exec_depend>
+  <exec_depend>pika_remote_agx_arm</exec_depend>
+  <exec_depend>sensor_tools</exec_depend>
+  <exec_depend>pika_locator</exec_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

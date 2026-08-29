@@ -4,8 +4,13 @@
 	branch = ros2
 [submodule "src/data_tools"]
 	path = src/data_tools
-	url = https://github.com/agilexrobotics/data_tools.git
+	url = git@github.com:trungdt880/data_tools.git
 	branch = ros2
 [submodule "src/PikaAnyArm"]
 	path = src/PikaAnyArm
-	url = https://github.com/agilexrobotics/PikaAnyArm.git
+	url = git@github.com:trungdt880/PikaAnyArm.git
+	branch = ros2
+[submodule "src/agx_arm_ros"]
+	path = src/agx_arm_ros
+	url = https://github.com/agilexrobotics/agx_arm_ros.git
+	branch = ros2

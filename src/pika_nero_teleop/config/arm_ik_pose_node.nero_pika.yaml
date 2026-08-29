@@ -1,0 +1,81 @@
+# IK configuration for a NERO carrying a Pika Gripper.
+#
+# Differs from the upstream arm_ik_pose_node.nero.yaml (which assumes the
+# AgileX CAN gripper) in three ways:
+#   1. the URDF is the bare arm - the Pika Gripper is not in agx_arm_urdf
+#   2. no gripper joints to lock, since none exist in that URDF
+#   3. the tool offset is the Pika Gripper's, and MUST be measured (see below)
+/**:
+  ros__parameters:
+    robot_description_package: agx_arm_description
+    # Bare 7-axis NERO. agx_arm_urdf has no Pika Gripper model; if you build
+    # one, point this at your own xacro-expanded .urdf and add its fixed
+    # joints to locked_joints below.
+    urdf_relative_path: agx_arm_urdf/nero/urdf/nero_description.urdf
+
+    # Nothing to lock: this URDF is the arm only, joint1..joint7, no
+    # end-effector joints. An empty YAML list ([]) cannot be used here -- ROS 2
+    # cannot infer an array's type from an empty sequence, and the node dies
+    # with "The parameter 'locked_joints' is not initialized". [""] keeps the
+    # STRING_ARRAY type; the node's _deduplicate_locked_joints() drops any name
+    # that is not a real joint, so "" is silently ignored.
+    locked_joints: [""]
+    ee_parent_joint: "joint7"
+    ee_frame_name: "ee"
+    output_joint_names: ["joint1", "joint2", "joint3", "joint4", "joint5", "joint6", "joint7"]
+
+    # ---------------------------------------------------------------------
+    # TOOL OFFSET - flange (joint7) to the Pika Gripper's grasp point.
+    #
+    # These are ZERO on purpose. I do not have the Pika-Gripper-to-NERO flange
+    # dimensions: the Pika manual only gives the gripper's overall envelope
+    # (L215 x W191 x H143 mm) and the NERO CAD bundle has a model for the
+    # AgileX two-finger gripper, not the Pika one.
+    #
+    # With zeros, teleop still works, but the arm pivots about the flange
+    # instead of about the fingertips, so rotations of the Sense feel like
+    # they orbit the wrong centre. To fix it, measure from the flange face to
+    # the midpoint between the closed fingertips along the arm's tool axes and
+    # put it here. Then set the SAME xyz in the tcp_offset launch argument
+    # (see teleop_nero_pika.launch.py) - the driver's /feedback/tcp_pose and
+    # this IK target must describe the same point or the motion mapping drifts.
+    #
+    # For reference the AgileX gripper's value upstream is
+    #   tool_translation_xyz: [0.1755, 0.0, -0.0235]
+    # which is the right order of magnitude but is NOT the Pika Gripper's.
+    # ---------------------------------------------------------------------
+    tool_pre_rot_rpy: [0.0, 0.0, 0.0]
+    tool_translation_xyz: [0.0, 0.0, 0.0]
+
+    # Collision pairs as (a,b) index pairs into the URDF's collision bodies.
+    # For nero_description.urdf those are:
+    #   0 base_link  1 link1  2 link2  3 link3  4 link4  5 link5  6 link6  7 link7
+    # These are upstream's NERO pairs -- (link3,link2), (link5,base_link),
+    # (link5,link1), (link6,base_link), (link6,link1). They index arm links
+    # only, which are numbered identically in the bare-arm and with-gripper
+    # models, so they carry over unchanged. (Same reason as locked_joints, an
+    # empty list is not expressible here.)
+    collision_pairs_flat: [3, 2, 5, 0, 5, 1, 6, 0, 6, 1]
+    # Off for responsiveness while teleoperating; turn on for safety testing.
+    enable_collision_check: false
+
+    # IK optimisation weights - same as upstream nero tuning.
+    w_pos: 2.0
+    w_ori: 2.0
+    w_reg: 0.01
+    w_smooth: 0.1
+    ipopt_max_iter: 50
+    ipopt_tol: 1.0e-4
+
+    enable_visualization: false
+    viewer_open_browser: false
+    viewer_model_name: "pinocchio"
+    viewer_target_frame_name: "ee_target"
+    viewer_axis_length: 0.1
+    viewer_axis_width: 10.0
+
+    # I/O topics
+    pose_stamped_topic: "/delta_pose"
+    feedback_joint_topic: "/feedback/joint_states"
+    pin_joint_status_topic: "/control/joint_states"
+    fk_pose_topic: "/ik_fk_pose"
