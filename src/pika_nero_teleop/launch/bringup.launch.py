@@ -46,6 +46,10 @@ _ARM_ARGS = [
     # READY / REST pose sequencing around each teleop session. Set
     # pose_manager:=false for the plain upstream behaviour.
     ('pose_manager', 'true'),
+    # rviz:=false drops the arm's RViz (and robot_state_publisher with it) --
+    # worth it while recording, ~3.5 cores between the two RViz instances. The
+    # locator's own RViz cannot be disabled; see teleop_nero_pika.launch.py.
+    ('rviz', 'true'),
 ]
 
 

@@ -39,6 +39,8 @@ from rosidl_runtime_py.utilities import get_message
 from sensor_msgs.msg import Image
 
 from data_msgs.srv import CaptureService
+from rcl_interfaces.msg import Parameter, ParameterType, ParameterValue
+from rcl_interfaces.srv import SetParameters
 
 RATE_WINDOW = 30          # messages kept per topic for rate estimation
 STALE_AFTER = 2.0         # seconds without a message before a topic reads dead
@@ -116,6 +118,24 @@ class RecorderNode(Node):
 
         self.cli = self.create_client(
             CaptureService, "/data_tools_dataCapture/capture_service")
+        # The instruction has to reach the capture node as a PARAMETER, not
+        # just in the start request. An episode begun with the Pika Sense
+        # double-click never passes through this GUI -- the Sense builds its
+        # own request with a hardcoded "[null]" -- so the only way the text you
+        # type here can reach that episode is by setting the recorder's
+        # parameter, which it re-reads at the start of every take.
+        # NOTE the two different names. dataCapture.cpp creates its node as
+        # "data_capture" but advertises the capture service under a hardcoded
+        # ABSOLUTE name, /data_tools_dataCapture/capture_service. Parameter
+        # services follow the node name, so they are under /data_capture/.
+        # (A /data_tools_dataCapture/set_parameters may also appear in
+        # `ros2 service list` -- that is stale discovery, and no client can
+        # reach it.)
+        self.param_cli = self.create_client(
+            SetParameters, os.environ.get("PIKA_CAPTURE_NODE", "/data_capture")
+                           + "/set_parameters")
+        self.instruction = ""        # wrapped form sent to the node
+        self.instruction_text = ""   # what the operator typed
         # Topic types are only known once publishers exist, so resolving
         # subscriptions is retried rather than done once at startup.
         self.create_timer(2.0, self._resubscribe)
@@ -207,19 +227,47 @@ class RecorderNode(Node):
                         "connected": entry["topic"] in self.subs})
         return out
 
+    @staticmethod
+    def wrap_instruction(text):
+        """dataCapture's parser wants \\[text\\]: it checks for a leading
+        backslash and strips two characters from each end. Plain text and the
+        default "[null]" both fail that check, so nothing is written and every
+        frame ends up with the task string "null"."""
+        text = (text or "").strip()
+        if not text:
+            return ""
+        return text if text.startswith("\\[") else "\\[" + text + "\\]"
+
+    def set_instruction(self, text):
+        """Push the instruction onto the capture node so ANY start path uses it."""
+        wrapped = self.wrap_instruction(text)
+        if wrapped == self.instruction:
+            return True
+        if not self.param_cli.wait_for_service(timeout_sec=5.0):
+            self.last_message = "capture node not reachable to set the instruction"
+            return False
+        req = SetParameters.Request()
+        req.parameters = [Parameter(
+            name="instructions",
+            value=ParameterValue(type=ParameterType.PARAMETER_STRING,
+                                 string_value=wrapped))]
+        fut = self.param_cli.call_async(req)
+        end = time.time() + 3.0
+        while not fut.done() and time.time() < end:
+            time.sleep(0.02)
+        if fut.done() and fut.result() and all(r.successful for r in fut.result().results):
+            self.instruction = wrapped
+            self.instruction_text = (text or "").strip()
+            return True
+        self.last_message = "failed to set the instruction on the capture node"
+        return False
+
     def _call(self, start, end, episode_index, instructions):
         if not self.cli.wait_for_service(timeout_sec=3.0):
             return False, "capture service not available - is data_tools_dataCapture running?"
         req = CaptureService.Request()
         req.start, req.end = start, end
-        # dataCapture's parser wants the instruction wrapped as \[text\] --
-        # it checks for a leading backslash and strips two characters from each
-        # end. Plain text (or the default "[null]") fails that check, prints
-        # "Error parsing JSON" and writes no instruction at all, which leaves
-        # every frame in the LeRobot dataset with the task string "null".
-        text = (instructions or "").strip()
-        if text and not text.startswith("\\["):
-            instructions = "\\[" + text + "\\]"
+        instructions = self.wrap_instruction(instructions)
 
         req.episode_index = int(episode_index)
         req.dataset_dir = self.dataset_dir
@@ -311,6 +359,8 @@ async function refresh(){
   const st=document.getElementById('state');
   st.className='state '+(s.recording?'rec':'idle');
   if(ep.value===''||(!s.recording&&+ep.value<s.episode_index))ep.value=s.episode_index;
+  const want=ins.value.trim();
+  if(!s.recording&&want!==(s.instruction_text||''))post('/api/instruction',{instructions:want});
   st.textContent=s.recording?('RECORDING episode '+s.episode_index+'  ·  '+s.elapsed+'s'):'idle';
   go.disabled=s.recording;
   document.querySelector('#msg small').textContent=s.message||'';
@@ -353,6 +403,8 @@ def make_handler(node):
                 self._send(200, json.dumps({
                     "recording": node.recording,
                     "episode_index": node.episode_index,
+                    "instruction": node.instruction,
+                    "instruction_text": node.instruction_text,
                     "elapsed": elapsed,
                     "message": node.last_message,
                     "topics": node.rates(),
@@ -391,6 +443,8 @@ def make_handler(node):
             if self.path.startswith("/api/start"):
                 ok = node.start_episode(body.get("episode_index", -1),
                                         body.get("instructions", ""))
+            elif self.path.startswith("/api/instruction"):
+                ok = node.set_instruction(body.get("instructions", ""))
             elif self.path.startswith("/api/stop"):
                 ok = node.stop_episode()
             else:

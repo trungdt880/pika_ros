@@ -10,10 +10,13 @@ install(
 
 install(PROGRAMS
   scripts/record_gui.py
+  scripts/eval_gui.py
   scripts/arm_pose_manager.py
   scripts/capture_pose.py
   scripts/goto_pose.py
   scripts/render_poses.py
+  scripts/policy_client.py
+  scripts/replay_policy_server.py
   DESTINATION lib/${PROJECT_NAME}
 )
 

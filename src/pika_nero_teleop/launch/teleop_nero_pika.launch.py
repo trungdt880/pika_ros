@@ -28,7 +28,7 @@ import os
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
-from launch.conditions import IfCondition
+from launch.conditions import IfCondition, UnlessCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PythonExpression
 from launch_ros.actions import Node
@@ -70,6 +70,21 @@ def generate_launch_description():
         DeclareLaunchArgument('handle_pose_roll', default_value='-1.57'),
         DeclareLaunchArgument('handle_pose_pitch', default_value='0.0'),
         DeclareLaunchArgument('handle_pose_yaw', default_value='0.0'),
+        # false drops the arm's RViz. Worth doing while recording: two RViz
+        # instances cost ~3.5 cores, and this file DECLARED this argument
+        # without ever using it, so it silently did nothing until now.
+        #
+        # It also drops robot_state_publisher, because upstream bundles the two
+        # in start_single_agx_arm_rviz.launch.py and neither it nor
+        # display.launch.py exposes a switch. Nothing in the teleop or
+        # recording path needs it -- arm_ik_pose_node loads the URDF itself and
+        # no /tf is recorded -- but you lose /tf and /tf_static, so anything
+        # you add later that wants them needs rviz:=true.
+        #
+        # The LOCATOR's RViz (vive.rviz) is separate and cannot be switched off
+        # at all: pika_locator's launch adds it unconditionally and the node is
+        # closed source. Kill it after bringup if you want the cores back:
+        #     pkill -f 'rviz2.*vive.rviz'
         DeclareLaunchArgument('rviz', default_value='true'),
         # READY / REST poses and the timings around them. Defaults are FK on
         # the URDF only -- capture your own with capture_pose.py. See the file.
@@ -84,20 +99,31 @@ def generate_launch_description():
     # Arm driver + robot_state_publisher + RViz. control:=false so RViz only
     # follows /feedback/joint_states -- the IK node is the single source of
     # /control/joint_states.
+    _arm_args = {
+        'can_port': LaunchConfiguration('can_port'),
+        'fw_version': LaunchConfiguration('fw_version'),
+        'arm_type': 'nero',
+        'auto_enable': LaunchConfiguration('auto_enable'),
+        'effector_type': 'none',
+        'tcp_offset': LaunchConfiguration('tcp_offset'),
+        'fast_mode': LaunchConfiguration('fast_mode'),
+    }
+    # With RViz: the _rviz variant, which also brings robot_state_publisher.
+    # control:=false so RViz only follows /feedback/joint_states -- the IK node
+    # is the single source of /control/joint_states.
     arm_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             os.path.join(agx_arm_ctrl_dir, 'launch', 'start_single_agx_arm_rviz.launch.py')),
-        launch_arguments={
-            'can_port': LaunchConfiguration('can_port'),
-            'fw_version': LaunchConfiguration('fw_version'),
-            'arm_type': 'nero',
-            'auto_enable': LaunchConfiguration('auto_enable'),
-            'effector_type': 'none',
-            'tcp_offset': LaunchConfiguration('tcp_offset'),
-            'control': 'false',
-            'follow': 'true',
-            'fast_mode': LaunchConfiguration('fast_mode'),
-        }.items(),
+        condition=IfCondition(LaunchConfiguration('rviz')),
+        launch_arguments=dict(_arm_args, control='false', follow='true').items(),
+    )
+    # Without: the plain driver launch. It takes no control/follow arguments,
+    # which are display-side only.
+    arm_launch_headless = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(agx_arm_ctrl_dir, 'launch', 'start_single_agx_arm.launch.py')),
+        condition=UnlessCondition(LaunchConfiguration('rviz')),
+        launch_arguments=_arm_args.items(),
     )
 
     arm_ik_pose_node = Node(
@@ -145,6 +171,7 @@ def generate_launch_description():
 
     return LaunchDescription(declared + [
         arm_launch,
+        arm_launch_headless,
         arm_ik_pose_node,
         pub_delta_pose_node,
         arm_pose_manager_node,

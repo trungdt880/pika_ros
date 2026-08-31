@@ -3,6 +3,29 @@ build/
 install/
 log/
 data/
+# Episodes pulled out of data/ because something is wrong with them. Kept, not
+# deleted -- see data_flagged/README.md for why each one is there. It must live
+# OUTSIDE data/, because data_sync.py and data_to_hdf5.py treat every entry in
+# the dataset directory that is not a .tar.gz as an episode.
+data_flagged/
+# Earlier takes moved aside by hand. Episode data, not source -- 523 MB and
+# growing, and it would otherwise be swept up by `git add -A`.
+data_old/
 hdf5/
 lerobot/
+# Policy evaluation sessions written by eval_gui.py -- one directory per run,
+# with trials.jsonl and results.csv. Generated output, like data/ and lerobot/,
+# so not tracked here. The CSVs are small and ARE worth keeping: copy the ones
+# that back a claim somewhere durable rather than relying on this directory.
+eval/
 src/realsense-ros/COLCON_IGNORE
+
+# The 50-episode subset built for the data-scaling comparison, and its
+# intermediate HDF5. Same reasoning as data/ and lerobot/ above: generated
+# output, and lerobot_50/ alone is 167 MB.
+hdf5_50/
+lerobot_50/
+
+# Python bytecode from running the scripts in place.
+__pycache__/
+*.pyc

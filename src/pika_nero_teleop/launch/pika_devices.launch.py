@@ -51,6 +51,20 @@ def generate_launch_description():
         # RViz inside the locator launch is useful for checking tracking, but
         # it is another window competing with the arm's RViz.
         DeclareLaunchArgument('locator', default_value='true'),
+
+        # The Pika Sense (leader). Set false for AUTONOMOUS operation: a policy
+        # commands the jaws by publishing on /sensor/gripper/joint_state, which
+        # is exactly the topic the Sense publishes and the follower gripper
+        # listens to (see the remap on gripper_node below). With the Sense node
+        # running as well, the two fight over the jaws.
+        #
+        #   teleop:     sense:=true  (default)
+        #   policy:     sense:=false locator:=false
+        #
+        # The GRIPPER node stays up either way -- a policy still needs the jaw
+        # opening for observation.state[7], and still needs something to
+        # command.
+        DeclareLaunchArgument('sense', default_value='true'),
     ]
 
     # pika_locator turns Vive base-station data into /pika_pose. Prebuilt,
@@ -67,6 +81,7 @@ def generate_launch_description():
         package='sensor_tools',
         executable='serial_gripper_imu',
         name='sense_serial_gripper_imu',
+        condition=IfCondition(LaunchConfiguration('sense')),
         parameters=[{
             'serial_port': LaunchConfiguration('sense_serial_port'),
             'joint_name': LaunchConfiguration('sense_joint_name'),
