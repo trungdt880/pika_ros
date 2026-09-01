@@ -26,6 +26,16 @@ src/realsense-ros/COLCON_IGNORE
 hdf5_50/
 lerobot_50/
 
+# The egg-picking collection's intermediate HDF5 and its built dataset.
+# hdf5_eggs/ alone is 130 GB -- it is a staging artefact of data_to_hdf5.py and
+# is regenerable from data/, so it is not worth keeping once lerobot_eggs/
+# exists. The dataset itself lives on the training box.
+hdf5_eggs/
+lerobot_eggs/
+
+# Episodes set aside during collection because the take went wrong.
+data_fail/
+
 # Python bytecode from running the scripts in place.
 __pycache__/
 *.pyc
